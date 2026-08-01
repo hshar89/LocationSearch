@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package org.learning.grpc;
+
+option java_package = "org.learning.grpc.proto";
+option java_multiple_files = true;
+
+message Place {
+  string id = 1;
+  string display_name = 2;
+  repeated string aliases = 3;
+  repeated string categories = 4;
+  double confidence = 5;
+  double lat = 6;
+  double lng = 7;
+  repeated string sources = 8;
+  double seed_score = 9;
+}
+
+message SearchPrefixRequest {
+  string prefix = 1;
+  int32 top_k = 2;
+  double lat = 3;
+  double lng = 4;
+}
+
+message PlaceSummary {
+  string id = 1;
+  string display_name = 2;
+}
+
+message SearchPrefixResponse {
+  repeated PlaceSummary places = 1;
+}
+
+message GetPlaceDetailsRequest {
+  string place_id = 1;
+}
+
+message GetPlaceDetailsResponse {
+  Place place = 1;
+}
+
+service PlaceSearchService {
+  rpc SearchPrefix(SearchPrefixRequest) returns (SearchPrefixResponse);
+  rpc GetPlaceDetails(GetPlaceDetailsRequest) returns (GetPlaceDetailsResponse);
+}
