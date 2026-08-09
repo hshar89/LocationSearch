@@ -22,6 +22,7 @@ message SearchPrefixRequest {
   int32 top_k = 2;
   double lat = 3;
   double lng = 4;
+  string session_id = 5;
 }
 
 message PlaceSummary {
@@ -35,6 +36,7 @@ message SearchPrefixResponse {
 
 message GetPlaceDetailsRequest {
   string place_id = 1;
+  string session_id = 2;
 }
 
 message GetPlaceDetailsResponse {
