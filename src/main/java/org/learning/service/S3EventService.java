@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadBucketRequest;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.NoSuchBucketException;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 
@@ -82,6 +83,20 @@ public class S3EventService {
             prefix = prefix + "/" + hourPrefix;
         }
         return readAllUnderPrefix(prefix + "/");
+    }
+
+    // Reads a single key, returning null if it does not exist. Used to read the snapshot "latest"
+    // pointer, which is absent until the first trie rebuild has published a snapshot.
+    public String readKeyOrNull(String key) {
+        try (var response = s3Client.getObject(
+                GetObjectRequest.builder().bucket(bucket).key(key).build())) {
+            return new String(response.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (NoSuchKeyException e) {
+            return null;
+        } catch (Exception e) {
+            log.error("Failed to read S3 key {}: {}", key, e.getMessage());
+            return null;
+        }
     }
 
     // General-purpose read for any key prefix in this bucket.

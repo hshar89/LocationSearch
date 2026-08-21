@@ -10,46 +10,59 @@ import org.learning.grpc.proto.SearchPrefixRequest;
 import org.learning.grpc.proto.SearchPrefixResponse;
 import org.learning.kafka.SearchEventProducer;
 import org.learning.model.MergedPoi;
-import org.learning.model.Trie;
+import org.learning.model.ScoredPlace;
 import org.learning.ranking.PlaceRanker;
+import org.learning.ranking.RankingIndexProvider;
 import org.learning.redis.RedisClient;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Objects;
 
 import static org.learning.BuilderUtil.normalize;
 
 public class PlaceSearchServiceImpl extends PlaceSearchServiceGrpc.PlaceSearchServiceImplBase {
 
-    private final Trie trieRoot;
+    private final RankingIndexProvider indexProvider;
     private final RedisClient redisClient;
     private final SearchEventProducer eventProducer;
 
-    public PlaceSearchServiceImpl(Trie trieRoot, RedisClient redisClient, SearchEventProducer eventProducer) {
-        this.trieRoot = trieRoot;
+    public PlaceSearchServiceImpl(RankingIndexProvider indexProvider, RedisClient redisClient,
+                                  SearchEventProducer eventProducer) {
+        this.indexProvider = indexProvider;
         this.redisClient = redisClient;
         this.eventProducer = eventProducer;
     }
 
+    // A candidate hydrated with its POI record and final blended score, ready to sort.
+    private record RankedPlace(MergedPoi poi, double score) {
+    }
+
     @Override
     public void searchPrefix(SearchPrefixRequest request, StreamObserver<SearchPrefixResponse> responseObserver) {
-        Trie node = findNode(normalize(request.getPrefix()));
-        List<String> candidateIds = node == null ? List.of() : node.getPlaceIds();
+        List<ScoredPlace> candidates = indexProvider.current()
+                .getOrDefault(normalize(request.getPrefix()), List.of());
 
-        List<MergedPoi> ranked = candidateIds.stream()
-                .map(redisClient::getPoi)
-                .filter(Objects::nonNull)
-                .sorted(Comparator.comparingDouble((MergedPoi poi) ->
-                        PlaceRanker.score(request.getLat(), request.getLng(), poi.lat(), poi.lng(), poi.seedScore())
-                ).reversed())
+        List<RankedPlace> ranked = candidates.stream()
+                .map(candidate -> {
+                    MergedPoi poi = redisClient.getPoi(candidate.id());
+                    if (poi == null) {
+                        return null;
+                    }
+                    // Blend the prefix-specific behavioral score with proximity to the user.
+                    double score = PlaceRanker.blend(candidate.score(),
+                            request.getLat(), request.getLng(), poi.lat(), poi.lng());
+                    return new RankedPlace(poi, score);
+                })
+                .filter(java.util.Objects::nonNull)
+                .sorted(Comparator.comparingDouble(RankedPlace::score).reversed())
                 .limit(request.getTopK())
                 .toList();
 
         SearchPrefixResponse.Builder response = SearchPrefixResponse.newBuilder();
         List<String> resultIds = new ArrayList<>();
-        for (MergedPoi poi : ranked) {
+        for (RankedPlace rankedPlace : ranked) {
+            MergedPoi poi = rankedPlace.poi();
             response.addPlaces(PlaceSummary.newBuilder()
                     .setId(poi.id())
                     .setDisplayName(poi.display_name())
@@ -94,16 +107,5 @@ public class PlaceSearchServiceImpl extends PlaceSearchServiceGrpc.PlaceSearchSe
         if (!request.getSessionId().isBlank()) {
             eventProducer.emitPlaceSelection(request.getSessionId(), request.getPlaceId());
         }
-    }
-
-    private Trie findNode(String normalizedPrefix) {
-        Trie node = trieRoot;
-        for (int i = 0; i < normalizedPrefix.length(); i++) {
-            node = node.getChildren().get(normalizedPrefix.charAt(i));
-            if (node == null) {
-                return null;
-            }
-        }
-        return node;
     }
 }

@@ -203,13 +203,18 @@ public class TrieBuilder {
             Trie trie = entry.getKey();
             HeapContainer container = entry.getValue();
             List<String> placeIds = new ArrayList<>();
+            List<Double> scores = new ArrayList<>();
             while(!container.heap.isEmpty()){
-                placeIds.add(container.heap.poll().placeId);
+                Pair pair = container.heap.poll();
+                placeIds.add(pair.placeId);
+                scores.add(pair.score);
             }
             // heap is a min-heap, so draining it yields ascending score order;
-            // reverse so callers get highest score first.
+            // reverse so callers get highest score first. placeIds and scores stay aligned.
             Collections.reverse(placeIds);
+            Collections.reverse(scores);
             trie.setPlaceIds(placeIds);
+            trie.setScores(scores);
         }
     }
 

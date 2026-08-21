@@ -29,4 +29,9 @@ public class BatchJobApplication {
     public S3EventService metricsS3Service() {
         return new S3EventService(MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, "place-ranking-metric");
     }
+
+    @Bean
+    public S3EventService trieSnapshotS3Service() {
+        return new S3EventService(MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, "trie-snapshot");
+    }
 }

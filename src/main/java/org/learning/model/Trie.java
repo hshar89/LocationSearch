@@ -9,6 +9,9 @@ public class Trie {
     private Character character;
     private Map<Character, Trie> children;
     private List<String> placeIds;
+    // Ranking scores aligned 1:1 with placeIds (same index), highest first. Populated by
+    // TrieBuilder.rerankTrie so the published snapshot can carry the blended behavioral score.
+    private List<Double> scores;
     private boolean terminal;
 
     public Trie(){
@@ -19,6 +22,7 @@ public class Trie {
         this.character = ch;
         this.children = new HashMap<>();
         this.placeIds = new ArrayList<>();
+        this.scores = new ArrayList<>();
         this.terminal = false;
     }
 
@@ -44,6 +48,14 @@ public class Trie {
 
     public void setPlaceIds(List<String> placeIds) {
         this.placeIds = placeIds;
+    }
+
+    public List<Double> getScores() {
+        return scores;
+    }
+
+    public void setScores(List<Double> scores) {
+        this.scores = scores;
     }
 
     public boolean isTerminal() {
