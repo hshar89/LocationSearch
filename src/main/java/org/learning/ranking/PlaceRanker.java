@@ -8,21 +8,21 @@ public class PlaceRanker {
     // (ln(2) * 2000). Tune this to make far-away places drop off faster/slower.
     private static final double DECAY_SCALE_METERS = 2000.0;
 
-    // alpha: popularity vs proximity blend weight. Popularity-leaning so
-    // well-known places still surface for users slightly outside their radius.
-    private static final double POPULARITY_WEIGHT = 0.65;
+    // Behavioral score vs proximity blend weight. Behavior-leaning: the snapshot's blended score
+    // (popularity + selection rate + MRR - effort - abandonment) is the learned signal we want to
+    // dominate, with proximity as a location tie-breaker.
+    private static final double BEHAVIOR_WEIGHT = 0.70;
 
-    // seedScore is an unbounded additive score (confidence*sourceCount + signal
-    // weights + destination bonus); observed max in the NYC dataset is ~7.5.
-    // Capped here with headroom so popularity saturates at 1.0 rather than
-    // requiring an exact theoretical maximum.
-    private static final double SEED_SCORE_CAP = 10.0;
-
-    public static double score(double userLat, double userLng, double placeLat, double placeLng, double seedScore) {
+    /**
+     * Final serving score for a candidate: blends its prefix-specific behavioral score (from the
+     * published ranking snapshot) with proximity to the user. When the caller supplies no location
+     * (lat/lng of 0), closeness collapses to ~0 for real POIs and ranking is behavior-only.
+     */
+    public static double blend(double behavioralScore, double userLat, double userLng,
+                               double placeLat, double placeLng) {
         double distance = haversineMeters(userLat, userLng, placeLat, placeLng);
         double closeness = Math.exp(-distance / DECAY_SCALE_METERS);
-        double popularity = Math.min(seedScore / SEED_SCORE_CAP, 1.0);
-        return POPULARITY_WEIGHT * popularity + (1 - POPULARITY_WEIGHT) * closeness;
+        return BEHAVIOR_WEIGHT * behavioralScore + (1 - BEHAVIOR_WEIGHT) * closeness;
     }
 
     private static double haversineMeters(double lat1, double lon1, double lat2, double lon2) {

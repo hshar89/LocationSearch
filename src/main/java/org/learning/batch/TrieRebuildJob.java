@@ -4,8 +4,10 @@ import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.learning.model.PlaceMetrics;
 import org.learning.model.PrefixPlaceCombinationMetrics;
+import org.learning.model.Trie;
 import org.learning.service.S3EventService;
 import org.learning.setup.TrieBuilder;
+import org.learning.setup.TrieSnapshot;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -27,10 +29,16 @@ public class TrieRebuildJob {
     // 30 days is a reasonable window without over-weighting stale behavior.
     private static final int METRIC_WINDOW_DAYS = 30;
 
-    private final S3EventService metricsS3Service;
+    // Key of the pointer object whose body is the prefix of the current snapshot. Must match
+    // RankingIndexProvider.LATEST_POINTER_KEY so the serving JVM discovers what we publish.
+    private static final String LATEST_POINTER_KEY = "trie-snapshot/latest";
 
-    public TrieRebuildJob(S3EventService metricsS3Service) {
+    private final S3EventService metricsS3Service;
+    private final S3EventService trieSnapshotS3Service;
+
+    public TrieRebuildJob(S3EventService metricsS3Service, S3EventService trieSnapshotS3Service) {
         this.metricsS3Service = metricsS3Service;
+        this.trieSnapshotS3Service = trieSnapshotS3Service;
     }
 
     @Scheduled(cron = CRON_DAILY_130AM_UTC, zone = "UTC")
@@ -61,10 +69,17 @@ public class TrieRebuildJob {
         log.info("Loaded {} combo metrics and {} place metrics across {} days",
                 comboMetrics.size(), placeMetrics.size(), METRIC_WINDOW_DAYS);
 
-        // --- Step 2: Rebuild trie with blended scores ---
+        // --- Step 2: Rebuild trie with blended scores and publish it to the serving JVM ---
+        // The rebuilt, behaviorally-ranked trie is serialized to S3 as a sharded snapshot; the
+        // "latest" pointer is written LAST so RankingIndexProvider never loads a partial snapshot.
         try {
-            new TrieBuilder().buildWithMetrics(comboMetrics, placeMetrics);
-            log.info("TrieRebuildJob completed for day: {}", yesterday);
+            Trie trie = new TrieBuilder().buildWithMetrics(comboMetrics, placeMetrics);
+
+            String basePrefix = "trie-snapshot/" + yesterday + "/";
+            TrieSnapshot.writeSharded(trie, trieSnapshotS3Service, basePrefix);
+            trieSnapshotS3Service.writeKey(LATEST_POINTER_KEY, basePrefix);
+
+            log.info("TrieRebuildJob published snapshot {} for day: {}", basePrefix, yesterday);
         } catch (Exception e) {
             log.error("TrieRebuildJob failed: {}", e.getMessage(), e);
         }
